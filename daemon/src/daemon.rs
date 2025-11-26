@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 
-use crate::hasher;
 use crate::hash_service::{self, HashResult};
+use crate::hasher;
 
 /// Daemon state: file cache + active watchers.
 pub struct DaemonState {

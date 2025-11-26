@@ -1,5 +1,5 @@
-use ignore::overrides::OverrideBuilder;
 use ignore::WalkBuilder;
+use ignore::overrides::OverrideBuilder;
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -51,9 +51,7 @@ pub fn list_files(root: &Path, path: &str, glob_pattern: &str) -> Result<Vec<Pat
         .add(glob_pattern)?
         .build()?;
 
-    let walker = WalkBuilder::new(&full_path)
-        .overrides(overrides)
-        .build();
+    let walker = WalkBuilder::new(&full_path).overrides(overrides).build();
 
     let mut files = Vec::new();
     for entry in walker {

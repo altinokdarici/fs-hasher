@@ -1,11 +1,11 @@
 //! IPC server: handles JSON protocol over Unix socket (Unix) or Named pipe (Windows).
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{RwLock, broadcast, mpsc};
 
 use crate::daemon::{self, DaemonState};
 use crate::persistence::{self, PersistedState};
@@ -105,7 +105,9 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         let change_rx = change_tx.subscribe();
 
         tokio::spawn(async move {
-            if let Err(e) = handle_connection(conn, state, persisted, dirty, event_tx, change_rx).await {
+            if let Err(e) =
+                handle_connection(conn, state, persisted, dirty, event_tx, change_rx).await
+            {
                 eprintln!("Connection error: {}", e);
             }
         });
@@ -147,7 +149,11 @@ async fn restore_watchers(
             let mut s = state_clone.write().await;
             // Hash all files under root with "**/*" glob to populate cache
             if let Err(e) = daemon::hash(&mut s, &root_clone, ".", "**/*", false, None) {
-                eprintln!("Background re-hash failed for {}: {}", root_clone.display(), e);
+                eprintln!(
+                    "Background re-hash failed for {}: {}",
+                    root_clone.display(),
+                    e
+                );
             } else {
                 eprintln!("Background re-hash complete for: {}", root_clone.display());
             }
@@ -239,7 +245,10 @@ fn matches_watch(changed: &PathBuf, root: &PathBuf, path: &str, glob: &str) -> b
     }
 
     // Check glob pattern using ignore crate
-    let overrides = match OverrideBuilder::new(&watch_dir).add(glob).and_then(|b| b.build()) {
+    let overrides = match OverrideBuilder::new(&watch_dir)
+        .add(glob)
+        .and_then(|b| b.build())
+    {
         Ok(o) => o,
         Err(_) => return false,
     };
@@ -256,7 +265,12 @@ async fn process_request(
     watches: &mut Vec<(PathBuf, String, String)>,
 ) -> Option<String> {
     match serde_json::from_str::<Request>(request) {
-        Ok(Request::Hash { root, path, glob, persistent }) => {
+        Ok(Request::Hash {
+            root,
+            path,
+            glob,
+            persistent,
+        }) => {
             let root_path = PathBuf::from(&root);
             let mut state = state.write().await;
 
@@ -283,10 +297,12 @@ async fn process_request(
                 Ok(result) => serde_json::to_string(&HashResponse {
                     hash: format!("{:016x}", result.hash),
                     file_count: result.file_count,
-                }).unwrap(),
+                })
+                .unwrap(),
                 Err(e) => serde_json::to_string(&ErrorResponse {
                     error: e.to_string(),
-                }).unwrap(),
+                })
+                .unwrap(),
             };
             Some(response)
         }
@@ -296,10 +312,15 @@ async fn process_request(
             // Start watching if not already
             {
                 let mut state = state.write().await;
-                if let Err(e) = daemon::ensure_watching(&mut state, &root_path, Some(event_tx.clone())) {
-                    return Some(serde_json::to_string(&ErrorResponse {
-                        error: e.to_string(),
-                    }).unwrap());
+                if let Err(e) =
+                    daemon::ensure_watching(&mut state, &root_path, Some(event_tx.clone()))
+                {
+                    return Some(
+                        serde_json::to_string(&ErrorResponse {
+                            error: e.to_string(),
+                        })
+                        .unwrap(),
+                    );
                 }
             }
 
@@ -320,8 +341,11 @@ async fn process_request(
             // No response for watch - just start streaming
             None
         }
-        Err(e) => Some(serde_json::to_string(&ErrorResponse {
-            error: format!("Invalid request: {}", e),
-        }).unwrap()),
+        Err(e) => Some(
+            serde_json::to_string(&ErrorResponse {
+                error: format!("Invalid request: {}", e),
+            })
+            .unwrap(),
+        ),
     }
 }
