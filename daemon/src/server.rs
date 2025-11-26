@@ -1,6 +1,6 @@
 //! IPC server: handles JSON protocol over Unix socket (Unix) or Named pipe (Windows).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -234,7 +234,7 @@ async fn handle_connection(
 }
 
 /// Check if a changed file path matches a watch subscription.
-fn matches_watch(changed: &PathBuf, root: &PathBuf, path: &str, glob: &str) -> bool {
+fn matches_watch(changed: &Path, root: &Path, path: &str, glob: &str) -> bool {
     use ignore::overrides::OverrideBuilder;
 
     let watch_dir = root.join(path);
