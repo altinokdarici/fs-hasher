@@ -38,13 +38,9 @@
   "optionalDependencies": {
     "@fs-hasher/darwin-arm64": "workspace:*",
     "@fs-hasher/darwin-x64": "workspace:*",
-    "@fs-hasher/linux-arm-gnueabihf": "workspace:*",
-    "@fs-hasher/linux-arm64-gnu": "workspace:*",
-    "@fs-hasher/linux-arm64-musl": "workspace:*",
     "@fs-hasher/linux-x64-gnu": "workspace:*",
     "@fs-hasher/linux-x64-musl": "workspace:*",
     "@fs-hasher/win32-arm64-msvc": "workspace:*",
-    "@fs-hasher/win32-ia32-msvc": "workspace:*",
     "@fs-hasher/win32-x64-msvc": "workspace:*"
   }
 }

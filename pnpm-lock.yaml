@@ -8,8 +8,6 @@ importers:
 
   .: {}
 
-  daemon: {}
-
   packages/client:
     devDependencies:
       '@types/node':
@@ -25,15 +23,6 @@ importers:
       '@fs-hasher/darwin-x64':
         specifier: workspace:*
         version: link:../darwin-x64
-      '@fs-hasher/linux-arm-gnueabihf':
-        specifier: workspace:*
-        version: link:../linux-arm-gnueabihf
-      '@fs-hasher/linux-arm64-gnu':
-        specifier: workspace:*
-        version: link:../linux-arm64-gnu
-      '@fs-hasher/linux-arm64-musl':
-        specifier: workspace:*
-        version: link:../linux-arm64-musl
       '@fs-hasher/linux-x64-gnu':
         specifier: workspace:*
         version: link:../linux-x64-gnu
@@ -43,30 +32,21 @@ importers:
       '@fs-hasher/win32-arm64-msvc':
         specifier: workspace:*
         version: link:../win32-arm64-msvc
-      '@fs-hasher/win32-ia32-msvc':
-        specifier: workspace:*
-        version: link:../win32-ia32-msvc
       '@fs-hasher/win32-x64-msvc':
         specifier: workspace:*
         version: link:../win32-x64-msvc
 
+  packages/daemon: {}
+
   packages/darwin-arm64: {}
 
   packages/darwin-x64: {}
-
-  packages/linux-arm-gnueabihf: {}
-
-  packages/linux-arm64-gnu: {}
-
-  packages/linux-arm64-musl: {}
 
   packages/linux-x64-gnu: {}
 
   packages/linux-x64-musl: {}
 
   packages/win32-arm64-msvc: {}
-
-  packages/win32-ia32-msvc: {}
 
   packages/win32-x64-msvc: {}
 

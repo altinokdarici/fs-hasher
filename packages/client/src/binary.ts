@@ -22,22 +22,11 @@ function getPlatformPackage(): PlatformPackage {
     }
   }
 
-  if (platform === "linux") {
+  if (platform === "linux" && arch === "x64") {
     const isMusl = isMuslLibc();
-
-    if (arch === "arm64") {
-      return isMusl
-        ? { packageName: "@fs-hasher/linux-arm64-musl", binaryName: "fs-hasher" }
-        : { packageName: "@fs-hasher/linux-arm64-gnu", binaryName: "fs-hasher" };
-    }
-    if (arch === "x64") {
-      return isMusl
-        ? { packageName: "@fs-hasher/linux-x64-musl", binaryName: "fs-hasher" }
-        : { packageName: "@fs-hasher/linux-x64-gnu", binaryName: "fs-hasher" };
-    }
-    if (arch === "arm") {
-      return { packageName: "@fs-hasher/linux-arm-gnueabihf", binaryName: "fs-hasher" };
-    }
+    return isMusl
+      ? { packageName: "@fs-hasher/linux-x64-musl", binaryName: "fs-hasher" }
+      : { packageName: "@fs-hasher/linux-x64-gnu", binaryName: "fs-hasher" };
   }
 
   if (platform === "win32") {
@@ -46,9 +35,6 @@ function getPlatformPackage(): PlatformPackage {
     }
     if (arch === "arm64") {
       return { packageName: "@fs-hasher/win32-arm64-msvc", binaryName: "fs-hasher.exe" };
-    }
-    if (arch === "ia32") {
-      return { packageName: "@fs-hasher/win32-ia32-msvc", binaryName: "fs-hasher.exe" };
     }
   }
 

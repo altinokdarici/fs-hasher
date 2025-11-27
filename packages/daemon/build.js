@@ -10,13 +10,9 @@
  * Rust targets:
  *   - aarch64-apple-darwin       -> @fs-hasher/darwin-arm64
  *   - x86_64-apple-darwin        -> @fs-hasher/darwin-x64
- *   - arm-unknown-linux-gnueabihf -> @fs-hasher/linux-arm-gnueabihf
- *   - aarch64-unknown-linux-gnu  -> @fs-hasher/linux-arm64-gnu
- *   - aarch64-unknown-linux-musl -> @fs-hasher/linux-arm64-musl
  *   - x86_64-unknown-linux-gnu   -> @fs-hasher/linux-x64-gnu
  *   - x86_64-unknown-linux-musl  -> @fs-hasher/linux-x64-musl
  *   - aarch64-pc-windows-msvc    -> @fs-hasher/win32-arm64-msvc
- *   - i686-pc-windows-msvc       -> @fs-hasher/win32-ia32-msvc
  *   - x86_64-pc-windows-msvc     -> @fs-hasher/win32-x64-msvc
  */
 
@@ -33,13 +29,9 @@ const TARGET_MAP = {
   // Rust target -> npm package name
   "aarch64-apple-darwin": "darwin-arm64",
   "x86_64-apple-darwin": "darwin-x64",
-  "arm-unknown-linux-gnueabihf": "linux-arm-gnueabihf",
-  "aarch64-unknown-linux-gnu": "linux-arm64-gnu",
-  "aarch64-unknown-linux-musl": "linux-arm64-musl",
   "x86_64-unknown-linux-gnu": "linux-x64-gnu",
   "x86_64-unknown-linux-musl": "linux-x64-musl",
   "aarch64-pc-windows-msvc": "win32-arm64-msvc",
-  "i686-pc-windows-msvc": "win32-ia32-msvc",
   "x86_64-pc-windows-msvc": "win32-x64-msvc",
 };
 
@@ -47,10 +39,8 @@ const TARGET_MAP = {
 const LOCAL_TARGET_MAP = {
   "darwin-arm64": "aarch64-apple-darwin",
   "darwin-x64": "x86_64-apple-darwin",
-  "linux-arm64": "aarch64-unknown-linux-gnu",
   "linux-x64": "x86_64-unknown-linux-gnu",
   "win32-arm64": "aarch64-pc-windows-msvc",
-  "win32-ia32": "i686-pc-windows-msvc",
   "win32-x64": "x86_64-pc-windows-msvc",
 };
 
