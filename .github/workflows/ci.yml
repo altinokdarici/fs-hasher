@@ -21,16 +21,20 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Cache cargo
+      - name: Cache cargo registry
         uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            packages/daemon/target/
-          key: ${{ runner.os }}-cargo-check-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: packages/daemon/target/
+          key: ${{ runner.os }}-check-target-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('packages/daemon/src/**') }}
 
       - name: Check formatting
         run: cargo fmt --check
@@ -98,16 +102,21 @@ jobs:
         if: matrix.cross
         run: cargo install cross --git https://github.com/cross-rs/cross
 
-      - name: Cache cargo
+      - name: Cache cargo registry
         uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            packages/daemon/target/
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache target directory
+        if: ${{ !matrix.cross }}
+        uses: actions/cache@v4
+        with:
+          path: packages/daemon/target/
+          key: ${{ runner.os }}-${{ matrix.target }}-target-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('packages/daemon/src/**') }}
 
       - name: Build (native)
         if: ${{ !matrix.cross }}
