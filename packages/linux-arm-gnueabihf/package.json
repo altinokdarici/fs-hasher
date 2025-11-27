@@ -1,0 +1,15 @@
+{
+  "name": "@fs-hasher/linux-arm-gnueabihf",
+  "version": "0.1.0",
+  "description": "fs-hasher binary for Linux ARM (gnueabihf)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/altinok/fs-hasher"
+  },
+  "os": ["linux"],
+  "cpu": ["arm"],
+  "libc": ["glibc"],
+  "main": "bin/fs-hasher",
+  "files": ["bin/fs-hasher"]
+}

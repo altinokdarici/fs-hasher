@@ -1,0 +1,15 @@
+{
+  "name": "@fs-hasher/linux-x64-musl",
+  "version": "0.1.0",
+  "description": "fs-hasher binary for Linux x64 (musl)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/altinok/fs-hasher"
+  },
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "libc": ["musl"],
+  "main": "bin/fs-hasher",
+  "files": ["bin/fs-hasher"]
+}
