@@ -1,7 +1,16 @@
 [package]
-name = "fs-hasher"
+name = "fswatchd"
 version = "0.1.0"
 edition = "2024"
+description = "Fast file system watcher daemon with content hashing"
+repository = "https://github.com/altinok/fswatchd"
+license = "MIT"
+keywords = ["file", "watch", "hash", "daemon", "cache"]
+categories = ["filesystem", "development-tools"]
+
+[[bin]]
+name = "fswatchd"
+path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.5.53", features = ["derive"] }

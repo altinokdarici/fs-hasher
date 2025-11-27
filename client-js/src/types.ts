@@ -20,12 +20,12 @@ export interface WatchEvent {
   type: "changed";
 }
 
-export class FsHasherError extends Error {
+export class FswatchdError extends Error {
   constructor(
     message: string,
     public readonly code?: string
   ) {
     super(message);
-    this.name = "FsHasherError";
+    this.name = "FswatchdError";
   }
 }

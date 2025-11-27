@@ -6,9 +6,7 @@ settings:
 
 importers:
 
-  .: {}
-
-  packages/client:
+  .:
     devDependencies:
       '@types/node':
         specifier: ^22.19.1
@@ -16,39 +14,6 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
-    optionalDependencies:
-      '@fs-hasher/darwin-arm64':
-        specifier: workspace:*
-        version: link:../darwin-arm64
-      '@fs-hasher/darwin-x64':
-        specifier: workspace:*
-        version: link:../darwin-x64
-      '@fs-hasher/linux-x64-gnu':
-        specifier: workspace:*
-        version: link:../linux-x64-gnu
-      '@fs-hasher/linux-x64-musl':
-        specifier: workspace:*
-        version: link:../linux-x64-musl
-      '@fs-hasher/win32-arm64-msvc':
-        specifier: workspace:*
-        version: link:../win32-arm64-msvc
-      '@fs-hasher/win32-x64-msvc':
-        specifier: workspace:*
-        version: link:../win32-x64-msvc
-
-  packages/daemon: {}
-
-  packages/darwin-arm64: {}
-
-  packages/darwin-x64: {}
-
-  packages/linux-x64-gnu: {}
-
-  packages/linux-x64-musl: {}
-
-  packages/win32-arm64-msvc: {}
-
-  packages/win32-x64-msvc: {}
 
 packages:
 

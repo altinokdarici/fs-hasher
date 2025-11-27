@@ -1,11 +1,3 @@
 target/
 dist/
 node_modules/
-
-# Platform package binaries (built by CI)
-packages/darwin-arm64/bin/
-packages/darwin-x64/bin/
-packages/linux-x64-gnu/bin/
-packages/linux-x64-musl/bin/
-packages/win32-arm64-msvc/bin/
-packages/win32-x64-msvc/bin/

@@ -5,11 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hash, watch } from "./index.js";
 
-describe("fs-hasher client", () => {
+describe("fswatchd client", () => {
   let testDir: string;
 
   before(async () => {
-    testDir = await mkdtemp(join(tmpdir(), "fs-hasher-test-"));
+    testDir = await mkdtemp(join(tmpdir(), "fswatchd-test-"));
   });
 
   after(async () => {

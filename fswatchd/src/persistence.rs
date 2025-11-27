@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 
-const STATE_DIR: &str = ".fs-hasher";
+const STATE_DIR: &str = ".fswatchd";
 const STATE_FILE: &str = "state.json";
 
 #[derive(Serialize, Deserialize, Default)]

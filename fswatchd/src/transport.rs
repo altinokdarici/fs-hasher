@@ -3,10 +3,10 @@
 use tokio::io::{AsyncRead, AsyncWrite};
 
 #[cfg(unix)]
-pub const SOCKET_PATH: &str = "/tmp/fs-hasher.sock";
+pub const SOCKET_PATH: &str = "/tmp/fswatchd.sock";
 
 #[cfg(windows)]
-pub const PIPE_NAME: &str = r"\\.\pipe\fs-hasher";
+pub const PIPE_NAME: &str = r"\\.\pipe\fswatchd";
 
 /// Platform-specific listener that accepts connections.
 #[cfg(unix)]

@@ -9,8 +9,8 @@ use clap::{Parser, Subcommand};
 use std::path::Path;
 
 #[derive(Parser)]
-#[command(name = "fs-hasher")]
-#[command(about = "A file system hashing tool")]
+#[command(name = "fswatchd")]
+#[command(about = "Fast file system watcher daemon with content hashing")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

@@ -1,10 +1,10 @@
 import { createConnection } from "node:net";
-import { FsHasherError } from "./types.js";
+import { FswatchdError } from "./types.js";
 
 export const SOCKET_PATH =
   process.platform === "win32"
-    ? "\\\\.\\pipe\\fs-hasher"
-    : "/tmp/fs-hasher.sock";
+    ? "\\\\.\\pipe\\fswatchd"
+    : "/tmp/fswatchd.sock";
 
 export function connect() {
   return createConnection(SOCKET_PATH);
@@ -30,17 +30,17 @@ export async function request<T>(data: Record<string, unknown>): Promise<T> {
       try {
         const line = response.split("\n")[0];
         if (!line) {
-          reject(new FsHasherError("Empty response from daemon"));
+          reject(new FswatchdError("Empty response from daemon"));
           return;
         }
         resolve(JSON.parse(line) as T);
       } catch {
-        reject(new FsHasherError(`Invalid response: ${response}`));
+        reject(new FswatchdError(`Invalid response: ${response}`));
       }
     });
 
     socket.on("error", (err) => {
-      reject(new FsHasherError(`Connection failed: ${err.message}`, "ECONNREFUSED"));
+      reject(new FswatchdError(`Connection failed: ${err.message}`, "ECONNREFUSED"));
     });
   });
 }

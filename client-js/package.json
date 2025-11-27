@@ -1,7 +1,7 @@
 {
-  "name": "@fs-hasher/client",
+  "name": "fswatchd",
   "version": "0.1.0",
-  "description": "Node.js client for fs-hasher daemon",
+  "description": "Node.js client for fswatchd daemon",
   "type": "module",
   "exports": {
     ".": {
@@ -34,13 +34,5 @@
   },
   "engines": {
     "node": ">=20.0.0"
-  },
-  "optionalDependencies": {
-    "@fs-hasher/darwin-arm64": "workspace:*",
-    "@fs-hasher/darwin-x64": "workspace:*",
-    "@fs-hasher/linux-x64-gnu": "workspace:*",
-    "@fs-hasher/linux-x64-musl": "workspace:*",
-    "@fs-hasher/win32-arm64-msvc": "workspace:*",
-    "@fs-hasher/win32-x64-msvc": "workspace:*"
   }
 }

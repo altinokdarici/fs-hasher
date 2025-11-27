@@ -33,24 +33,30 @@ jobs:
       - name: Cache target directory
         uses: actions/cache@v4
         with:
-          path: packages/daemon/target/
-          key: ${{ runner.os }}-check-target-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('packages/daemon/src/**') }}
+          path: fswatchd/target/
+          key: ${{ runner.os }}-check-target-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('fswatchd/src/**') }}
 
       - name: Check formatting
         run: cargo fmt --check
-        working-directory: packages/daemon
+        working-directory: fswatchd
 
       - name: Clippy
         run: cargo clippy -- -D warnings
-        working-directory: packages/daemon
+        working-directory: fswatchd
 
-      - name: Run tests
+      - name: Run Rust tests
         run: cargo test
-        working-directory: packages/daemon
+        working-directory: fswatchd
 
       - name: Build daemon binary
         run: cargo build --release
-        working-directory: packages/daemon
+        working-directory: fswatchd
+
+      - name: Add fswatchd to PATH
+        run: |
+          mkdir -p ~/.local/bin
+          cp fswatchd/target/release/fswatchd ~/.local/bin/
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -62,112 +68,12 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
-
-      - name: Package daemon binary
-        run: node build.js
-        working-directory: packages/daemon
+        working-directory: client-js
 
       - name: Build client
-        run: pnpm --filter @fs-hasher/client build
+        run: pnpm build
+        working-directory: client-js
 
       - name: Run client tests
-        run: pnpm --filter @fs-hasher/client test
-
-  build:
-    name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # macOS
-          - os: macos-latest
-            target: aarch64-apple-darwin
-          - os: macos-15
-            target: x86_64-apple-darwin
-
-          # Linux
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-
-          # Windows
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-          - os: windows-latest
-            target: aarch64-pc-windows-msvc
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Install musl-tools (Linux musl)
-        if: contains(matrix.target, 'musl')
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
-
-      - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
-        working-directory: packages/daemon
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Package binary
-        run: node build.js ${{ matrix.target }}
-        working-directory: packages/daemon
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.target }}
-          path: packages/*/bin/*
-          if-no-files-found: error
-
-  publish:
-    name: Publish to npm
-    needs: [check, build]
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    steps:
-      - uses: actions/checkout@v4
-  
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          registry-url: "https://registry.npmjs.org"
-  
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-  
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-  
-      - name: Move binaries to packages
-        run: |
-          for dir in artifacts/*/; do
-            cp -r "$dir"* packages/
-          done
-  
-      - name: Install dependencies
-        run: pnpm install
-  
-      - name: Build client
-        run: pnpm --filter fs-hasher build
-  
-      # - name: Publish packages
-      #   run: pnpm -r publish --no-git-checks
-      #   env:
-      #     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm test
+        working-directory: client-js

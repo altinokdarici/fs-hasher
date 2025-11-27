@@ -35,5 +35,5 @@ export async function ensureDaemon(): Promise<void> {
     if (await isRunning()) return;
   }
 
-  throw new Error("Failed to start fs-hasher daemon");
+  throw new Error("Failed to start fswatchd daemon");
 }
