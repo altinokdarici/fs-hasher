@@ -108,7 +108,6 @@ jobs:
           path: packages/*/bin/*
           if-no-files-found: error
 
-  Publish job (only on main branch, manual trigger or tags)
   publish:
     name: Publish to npm
     needs: [check, build]
