@@ -48,6 +48,31 @@ jobs:
         run: cargo test
         working-directory: packages/daemon
 
+      - name: Build daemon binary
+        run: cargo build --release
+        working-directory: packages/daemon
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Package daemon binary
+        run: node build.js
+        working-directory: packages/daemon
+
+      - name: Build client
+        run: pnpm --filter @fs-hasher/client build
+
+      - name: Run client tests
+        run: pnpm --filter @fs-hasher/client test
+
   build:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}

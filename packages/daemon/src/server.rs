@@ -245,8 +245,10 @@ fn matches_watch(changed: &Path, root: &Path, path: &str, glob: &str) -> bool {
     }
 
     // Check glob pattern using ignore crate
+    // Prefix with ! to make it an inclusion pattern (whitelist)
+    let inclusion_glob = format!("!{}", glob);
     let overrides = match OverrideBuilder::new(&watch_dir)
-        .add(glob)
+        .add(&inclusion_glob)
         .and_then(|b| b.build())
     {
         Ok(o) => o,
