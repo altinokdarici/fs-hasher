@@ -108,42 +108,42 @@ jobs:
           path: packages/*/bin/*
           if-no-files-found: error
 
-  # Publish job (only on main branch, manual trigger or tags)
-  # publish:
-  #   name: Publish to npm
-  #   needs: [check, build]
-  #   runs-on: ubuntu-latest
-  #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #
-  #     - name: Setup Node.js
-  #       uses: actions/setup-node@v4
-  #       with:
-  #         node-version: "22"
-  #         registry-url: "https://registry.npmjs.org"
-  #
-  #     - name: Setup pnpm
-  #       uses: pnpm/action-setup@v4
-  #
-  #     - name: Download all artifacts
-  #       uses: actions/download-artifact@v4
-  #       with:
-  #         path: artifacts
-  #
-  #     - name: Move binaries to packages
-  #       run: |
-  #         for dir in artifacts/*/; do
-  #           cp -r "$dir"* packages/
-  #         done
-  #
-  #     - name: Install dependencies
-  #       run: pnpm install
-  #
-  #     - name: Build client
-  #       run: pnpm --filter fs-hasher build
-  #
-  #     - name: Publish packages
-  #       run: pnpm -r publish --no-git-checks
-  #       env:
-  #         NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+  Publish job (only on main branch, manual trigger or tags)
+  publish:
+    name: Publish to npm
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+  
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+  
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+  
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+  
+      - name: Move binaries to packages
+        run: |
+          for dir in artifacts/*/; do
+            cp -r "$dir"* packages/
+          done
+  
+      - name: Install dependencies
+        run: pnpm install
+  
+      - name: Build client
+        run: pnpm --filter fs-hasher build
+  
+      # - name: Publish packages
+      #   run: pnpm -r publish --no-git-checks
+      #   env:
+      #     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
