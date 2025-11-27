@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Node.js client for fswatchd daemon",
   "type": "module",
+  "packageManager": "pnpm@10.23.0",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
