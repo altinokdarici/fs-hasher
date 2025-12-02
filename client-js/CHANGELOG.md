@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/altinokdarici/fs-hasher/compare/fswatchd-js-v0.3.0...fswatchd-js-v0.3.1) (2025-12-02)
+
+
+### Bug Fixes
+
+* **client-js:** add repository and homepage fields to package.json ([ba32b6a](https://github.com/altinokdarici/fs-hasher/commit/ba32b6a42dec030e13a9d26e007cbb1c35ea5884))
+
 ## [0.3.0](https://github.com/altinokdarici/fs-hasher/compare/fswatchd-js-v0.2.0...fswatchd-js-v0.3.0) (2025-12-02)
 
 
