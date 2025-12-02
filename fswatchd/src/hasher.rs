@@ -59,10 +59,10 @@ pub fn list_files(root: &Path, path: &str, glob_pattern: &str) -> Result<Vec<Pat
         let entry_path = entry.path();
         if entry_path.is_file() {
             // Match glob against relative path from base directory
-            if let Ok(rel_path) = entry_path.strip_prefix(&full_path) {
-                if glob.is_match(rel_path) {
-                    files.push(entry_path.to_path_buf());
-                }
+            if let Ok(rel_path) = entry_path.strip_prefix(&full_path)
+                && glob.is_match(rel_path)
+            {
+                files.push(entry_path.to_path_buf());
             }
         }
     }

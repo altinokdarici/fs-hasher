@@ -44,7 +44,7 @@ pub fn invalidate_file(state: &mut DaemonState, path: &PathBuf) {
     let keys_to_remove: Vec<GlobKey> = state
         .result_cache
         .keys()
-        .filter(|key| path.starts_with(&key.root.join(&key.path)))
+        .filter(|key| path.starts_with(key.root.join(&key.path)))
         .cloned()
         .collect();
 
@@ -76,12 +76,12 @@ pub fn hash(
 
     if let Some(result) = state.result_cache.get(&key) {
         debug!(path = %path, glob = %glob, "cache hit");
-        return Ok(result.clone());
+        return Ok(*result);
     }
 
     // Cache miss - compute and store
     let result = hash_service::hash_with_cache(&mut state.file_cache, root, path, glob)?;
-    state.result_cache.insert(key, result.clone());
+    state.result_cache.insert(key, result);
     Ok(result)
 }
 

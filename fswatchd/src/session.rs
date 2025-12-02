@@ -9,6 +9,12 @@ use std::pin::Pin;
 
 use crate::protocol::{self, Request, Response, SubscriptionKey};
 
+/// Boxed future for hash operations
+type HashFuture<'a> = Pin<Box<dyn Future<Output = Result<(String, usize), String>> + Send + 'a>>;
+
+/// Boxed future for watch operations
+type WatchFuture<'a> = Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
+
 /// Result of processing a request
 #[derive(Debug)]
 pub enum RequestResult {
@@ -26,20 +32,9 @@ pub enum RequestResult {
 /// Trait for the backend that handles actual hash/watch operations.
 /// This allows mocking in tests. Uses async methods for real implementation.
 pub trait SessionBackend: Send + Sync {
-    fn hash(
-        &self,
-        root: &str,
-        path: &str,
-        glob: &str,
-        persistent: bool,
-    ) -> Pin<Box<dyn Future<Output = Result<(String, usize), String>> + Send + '_>>;
+    fn hash(&self, root: &str, path: &str, glob: &str, persistent: bool) -> HashFuture<'_>;
 
-    fn watch(
-        &self,
-        root: &str,
-        path: &str,
-        glob: &str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>>;
+    fn watch(&self, root: &str, path: &str, glob: &str) -> WatchFuture<'_>;
 }
 
 /// Per-connection session state
@@ -118,22 +113,11 @@ mod tests {
     struct MockBackend;
 
     impl SessionBackend for MockBackend {
-        fn hash(
-            &self,
-            _root: &str,
-            _path: &str,
-            _glob: &str,
-            _persistent: bool,
-        ) -> Pin<Box<dyn Future<Output = Result<(String, usize), String>> + Send + '_>> {
+        fn hash(&self, _root: &str, _path: &str, _glob: &str, _persistent: bool) -> HashFuture<'_> {
             Box::pin(async { Ok(("abc123".to_string(), 5)) })
         }
 
-        fn watch(
-            &self,
-            _root: &str,
-            _path: &str,
-            _glob: &str,
-        ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
+        fn watch(&self, _root: &str, _path: &str, _glob: &str) -> WatchFuture<'_> {
             Box::pin(async { Ok(()) })
         }
     }
