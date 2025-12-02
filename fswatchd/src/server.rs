@@ -2,22 +2,22 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{RwLock, broadcast, mpsc};
 use tracing::{debug, error, info};
 
 use crate::daemon::{self, DaemonState};
 use crate::persistence::{self, PersistedState, WatchEntry};
 use crate::protocol::{self, Request, Response, SubscriptionKey};
 use crate::session::{RequestResult, Session, SessionBackend};
-#[cfg(unix)]
-use crate::transport::SOCKET_PATH;
 #[cfg(windows)]
 use crate::transport::PIPE_NAME;
+#[cfg(unix)]
+use crate::transport::SOCKET_PATH;
 
 const FLUSH_INTERVAL_SECS: u64 = 30;
 const DEBOUNCE_MS: u64 = 100;
@@ -46,7 +46,9 @@ impl SessionBackend for AppStateBackend {
         path: &str,
         glob: &str,
         persistent: bool,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(String, usize), String>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<(String, usize), String>> + Send + '_>,
+    > {
         let root = root.to_string();
         let path = path.to_string();
         let glob = glob.to_string();
@@ -103,7 +105,9 @@ impl SessionBackend for AppStateBackend {
             // Start watching if not already
             {
                 let mut daemon = state.daemon.write().await;
-                if let Err(e) = daemon::ensure_watching(&mut daemon, &root_path, Some(state.event_tx.clone())) {
+                if let Err(e) =
+                    daemon::ensure_watching(&mut daemon, &root_path, Some(state.event_tx.clone()))
+                {
                     return Err(e.to_string());
                 }
             }
@@ -279,7 +283,10 @@ async fn accept_connections(state: Arc<AppState>) -> Result<(), Box<dyn std::err
 }
 
 /// Handle a single client connection
-async fn handle_connection<S>(state: Arc<AppState>, stream: S) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+async fn handle_connection<S>(
+    state: Arc<AppState>,
+    stream: S,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send,
 {
@@ -294,16 +301,16 @@ where
     let mut session = Session::new();
 
     // Create backend adapter
-    let backend = AppStateBackend { state: state.clone() };
+    let backend = AppStateBackend {
+        state: state.clone(),
+    };
 
     loop {
         line.clear();
 
         // Wait for either a request or timeout (to check for events)
-        let read_result = tokio::time::timeout(
-            Duration::from_millis(50),
-            reader.read_line(&mut line)
-        ).await;
+        let read_result =
+            tokio::time::timeout(Duration::from_millis(50), reader.read_line(&mut line)).await;
 
         match read_result {
             Ok(Ok(0)) => break, // Connection closed
@@ -322,7 +329,9 @@ where
                             RequestResult::Unsubscribe { response } => response,
                         }
                     }
-                    Err(e) => Response::Error { error: format!("Invalid request: {}", e) },
+                    Err(e) => Response::Error {
+                        error: format!("Invalid request: {}", e),
+                    },
                 };
 
                 let response_json = serde_json::to_string(&response)?;
@@ -331,7 +340,7 @@ where
                 writer.flush().await?;
             }
             Ok(Err(e)) => return Err(e.into()), // Read error
-            Err(_) => {} // Timeout - no request, check for events below
+            Err(_) => {}                        // Timeout - no request, check for events below
         }
 
         // Drain any pending events (non-blocking)
@@ -377,13 +386,22 @@ async fn restore_watchers(state: &Arc<AppState>) {
         return;
     }
 
-    info!("Restoring {} watch entries from persisted state", entries.len());
+    info!(
+        "Restoring {} watch entries from persisted state",
+        entries.len()
+    );
 
     for entry in entries {
         {
             let mut daemon = state.daemon.write().await;
-            if let Err(e) = daemon::ensure_watching(&mut daemon, &entry.root, Some(state.event_tx.clone())) {
-                error!("Failed to restore watcher for {}: {}", entry.root.display(), e);
+            if let Err(e) =
+                daemon::ensure_watching(&mut daemon, &entry.root, Some(state.event_tx.clone()))
+            {
+                error!(
+                    "Failed to restore watcher for {}: {}",
+                    entry.root.display(),
+                    e
+                );
                 continue;
             }
         }
@@ -396,22 +414,47 @@ async fn restore_watchers(state: &Arc<AppState>) {
         );
         {
             let mut subs = state.subscriptions.write().await;
-            subs.insert(key, (entry.root.clone(), entry.path.clone(), entry.glob.clone()));
+            subs.insert(
+                key,
+                (entry.root.clone(), entry.path.clone(), entry.glob.clone()),
+            );
         }
 
         // Background re-hash
         let state_clone = state.clone();
         tokio::spawn(async move {
-            debug!("Background re-hash for: {} path={} glob={}", entry.root.display(), entry.path, entry.glob);
+            debug!(
+                "Background re-hash for: {} path={} glob={}",
+                entry.root.display(),
+                entry.path,
+                entry.glob
+            );
             let start = std::time::Instant::now();
             let mut daemon = state_clone.daemon.write().await;
-            match daemon::hash(&mut daemon, &entry.root, &entry.path, &entry.glob, false, None) {
+            match daemon::hash(
+                &mut daemon,
+                &entry.root,
+                &entry.path,
+                &entry.glob,
+                false,
+                None,
+            ) {
                 Ok(result) => {
-                    info!("Re-hash complete: {} path={} files={} duration={:?}",
-                        entry.root.display(), entry.path, result.file_count, start.elapsed());
+                    info!(
+                        "Re-hash complete: {} path={} files={} duration={:?}",
+                        entry.root.display(),
+                        entry.path,
+                        result.file_count,
+                        start.elapsed()
+                    );
                 }
                 Err(e) => {
-                    error!("Background re-hash failed for {} path={}: {}", entry.root.display(), entry.path, e);
+                    error!(
+                        "Background re-hash failed for {} path={}: {}",
+                        entry.root.display(),
+                        entry.path,
+                        e
+                    );
                 }
             }
         });
@@ -419,7 +462,12 @@ async fn restore_watchers(state: &Arc<AppState>) {
 }
 
 /// Check if a changed file path matches a watch subscription
-fn matches_watch(changed: &std::path::Path, root: &std::path::Path, path: &str, glob_pattern: &str) -> bool {
+fn matches_watch(
+    changed: &std::path::Path,
+    root: &std::path::Path,
+    path: &str,
+    glob_pattern: &str,
+) -> bool {
     let watch_dir = match root.join(path).canonicalize() {
         Ok(p) => p,
         Err(_) => root.join(path),

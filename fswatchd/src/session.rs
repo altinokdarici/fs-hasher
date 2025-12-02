@@ -15,7 +15,10 @@ pub enum RequestResult {
     /// Send response to client
     Response(Response),
     /// Send response and add subscription
-    Subscribe { response: Response, key: SubscriptionKey },
+    Subscribe {
+        response: Response,
+        key: SubscriptionKey,
+    },
     /// Send response and remove subscription
     Unsubscribe { response: Response },
 }
@@ -63,14 +66,17 @@ impl Session {
         backend: &B,
     ) -> RequestResult {
         match request {
-            Request::Hash { root, path, glob, persistent } => {
-                match backend.hash(&root, &path, &glob, persistent).await {
-                    Ok((hash, file_count)) => {
-                        RequestResult::Response(Response::Hash { hash, file_count })
-                    }
-                    Err(e) => RequestResult::Response(Response::Error { error: e }),
+            Request::Hash {
+                root,
+                path,
+                glob,
+                persistent,
+            } => match backend.hash(&root, &path, &glob, persistent).await {
+                Ok((hash, file_count)) => {
+                    RequestResult::Response(Response::Hash { hash, file_count })
                 }
-            }
+                Err(e) => RequestResult::Response(Response::Error { error: e }),
+            },
 
             Request::Watch { root, path, glob } => {
                 let key = protocol::make_subscription_key(&root, &path, &glob);
@@ -97,7 +103,6 @@ impl Session {
             }
         }
     }
-
 }
 
 impl Default for Session {

@@ -7,7 +7,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 const LOG_DIR_NAME: &str = ".fswatchd";
 const LOG_FILE_PREFIX: &str = "fswatchd.log";
@@ -50,7 +50,9 @@ fn setup_file_appender() -> RollingFileAppender {
 
 fn cleanup_old_logs(log_dir: &PathBuf) {
     let max_age = Duration::from_secs(LOG_MAX_AGE_SECS);
-    let Ok(entries) = fs::read_dir(log_dir) else { return };
+    let Ok(entries) = fs::read_dir(log_dir) else {
+        return;
+    };
     let now = SystemTime::now();
 
     for entry in entries.flatten() {
