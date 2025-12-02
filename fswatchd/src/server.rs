@@ -194,14 +194,19 @@ impl SessionBackend for AppStateBackend {
 }
 
 #[tokio::main]
-pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run(socket_path: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(unix)]
+    let socket_path = socket_path.unwrap_or_else(|| SOCKET_PATH.to_string());
+    #[cfg(windows)]
+    let socket_path = socket_path.unwrap_or_else(|| PIPE_NAME.to_string());
+
     // Check if another daemon is already running
     #[cfg(unix)]
     {
-        if tokio::net::UnixStream::connect(SOCKET_PATH).await.is_ok() {
+        if tokio::net::UnixStream::connect(&socket_path).await.is_ok() {
             return Err("Another fswatchd instance is already running".into());
         }
-        let _ = std::fs::remove_file(SOCKET_PATH);
+        let _ = std::fs::remove_file(&socket_path);
     }
 
     let (event_tx, mut event_rx) = mpsc::channel::<notify::Event>(100);
@@ -295,13 +300,16 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Start accepting connections
-    accept_connections(state).await
+    accept_connections(state, &socket_path).await
 }
 
 #[cfg(unix)]
-async fn accept_connections(state: Arc<AppState>) -> Result<(), Box<dyn std::error::Error>> {
-    let listener = tokio::net::UnixListener::bind(SOCKET_PATH)?;
-    info!("Daemon started, listening on {}", SOCKET_PATH);
+async fn accept_connections(
+    state: Arc<AppState>,
+    socket_path: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let listener = tokio::net::UnixListener::bind(socket_path)?;
+    info!("Daemon started, listening on {}", socket_path);
 
     loop {
         let (stream, _) = listener.accept().await?;
@@ -315,14 +323,17 @@ async fn accept_connections(state: Arc<AppState>) -> Result<(), Box<dyn std::err
 }
 
 #[cfg(windows)]
-async fn accept_connections(state: Arc<AppState>) -> Result<(), Box<dyn std::error::Error>> {
+async fn accept_connections(
+    state: Arc<AppState>,
+    pipe_name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     use tokio::net::windows::named_pipe::ServerOptions;
 
-    info!("Daemon started, listening on {}", PIPE_NAME);
+    info!("Daemon started, listening on {}", pipe_name);
 
     let mut server = ServerOptions::new()
         .first_pipe_instance(true)
-        .create(PIPE_NAME)?;
+        .create(pipe_name)?;
 
     loop {
         server.connect().await?;
@@ -331,7 +342,7 @@ async fn accept_connections(state: Arc<AppState>) -> Result<(), Box<dyn std::err
         // Create next pipe instance before serving
         server = ServerOptions::new()
             .first_pipe_instance(false)
-            .create(PIPE_NAME)?;
+            .create(pipe_name)?;
 
         let state = state.clone();
         tokio::spawn(async move {

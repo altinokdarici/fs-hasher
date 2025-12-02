@@ -22,7 +22,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Start the daemon server
-    Start,
+    Start {
+        /// Custom socket path (Unix) or pipe name (Windows)
+        #[arg(long)]
+        socket_path: Option<String>,
+    },
 }
 
 fn main() {
@@ -31,8 +35,8 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Start => {
-            if let Err(e) = server::run() {
+        Commands::Start { socket_path } => {
+            if let Err(e) = server::run(socket_path) {
                 error!("Server error: {}", e);
             }
         }
