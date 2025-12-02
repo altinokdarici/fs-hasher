@@ -29,12 +29,17 @@ pub enum RequestResult {
     Unsubscribe { response: Response },
 }
 
+/// Boxed future for unwatch operations
+type UnwatchFuture<'a> = Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
+
 /// Trait for the backend that handles actual hash/watch operations.
 /// This allows mocking in tests. Uses async methods for real implementation.
 pub trait SessionBackend: Send + Sync {
     fn hash(&self, root: &str, path: &str, glob: &str, persistent: bool) -> HashFuture<'_>;
 
     fn watch(&self, root: &str, path: &str, glob: &str) -> WatchFuture<'_>;
+
+    fn unwatch(&self, key: &str) -> UnwatchFuture<'_>;
 }
 
 /// Per-connection session state
@@ -92,6 +97,12 @@ impl Session {
 
             Request::Unwatch { key } => {
                 self.subscriptions.remove(&key);
+                // Clean up backend subscription and potentially stop watcher
+                if let Err(e) = backend.unwatch(&key).await {
+                    return RequestResult::Response(Response::Error {
+                        error: format!("Failed to unwatch: {}", e),
+                    });
+                }
                 RequestResult::Unsubscribe {
                     response: Response::Ok { ok: true },
                 }
@@ -118,6 +129,10 @@ mod tests {
         }
 
         fn watch(&self, _root: &str, _path: &str, _glob: &str) -> WatchFuture<'_> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn unwatch(&self, _key: &str) -> UnwatchFuture<'_> {
             Box::pin(async { Ok(()) })
         }
     }

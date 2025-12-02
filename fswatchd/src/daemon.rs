@@ -127,3 +127,13 @@ fn start_watching(
 
     Ok(())
 }
+
+/// Stops watching a root directory if it exists.
+pub fn stop_watching(state: &mut DaemonState, root: &PathBuf) -> bool {
+    if state.root_watchers.remove(root).is_some() {
+        info!(root = %root.display(), "stopped watching");
+        true
+    } else {
+        false
+    }
+}

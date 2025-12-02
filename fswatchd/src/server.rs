@@ -40,6 +40,66 @@ struct AppStateBackend {
 }
 
 impl SessionBackend for AppStateBackend {
+    fn unwatch(
+        &self,
+        key: &str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>> {
+        let key = key.to_string();
+        let state = self.state.clone();
+
+        Box::pin(async move {
+            // Remove from subscriptions and get the root
+            let root = {
+                let mut subs = state.subscriptions.write().await;
+                subs.remove(&key).map(|(root, _, _)| root)
+            };
+
+            let Some(root) = root else {
+                return Ok(()); // Already removed or never existed
+            };
+
+            // Remove from persisted state
+            {
+                let mut p = state.persisted.write().await;
+                let before = p.watch_entries.len();
+                p.watch_entries.retain(|e| {
+                    let entry_key = protocol::make_subscription_key(
+                        &e.root.to_string_lossy(),
+                        &e.path,
+                        &e.glob,
+                    );
+                    entry_key != key
+                });
+                if p.watch_entries.len() != before {
+                    state.dirty.store(true, std::sync::atomic::Ordering::SeqCst);
+                    if let Err(e) = persistence::save(&p) {
+                        error!("Failed to save state: {}", e);
+                    }
+                }
+            }
+
+            // Check if any other subscriptions still use this root
+            let has_other_subscriptions = {
+                let subs = state.subscriptions.read().await;
+                subs.values().any(|(r, _, _)| r == &root)
+            };
+
+            // Also check persisted state
+            let has_persisted = {
+                let p = state.persisted.read().await;
+                p.watch_entries.iter().any(|e| e.root == root)
+            };
+
+            // Stop watcher if no more subscriptions for this root
+            if !has_other_subscriptions && !has_persisted {
+                let mut daemon = state.daemon.write().await;
+                daemon::stop_watching(&mut daemon, &root);
+            }
+
+            Ok(())
+        })
+    }
+
     fn hash(
         &self,
         root: &str,
