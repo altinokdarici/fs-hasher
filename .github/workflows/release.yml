@@ -3,6 +3,12 @@ name: Release
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name to build and release (e.g., fswatchd-v0.3.1)'
+        required: true
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
@@ -27,7 +33,7 @@ jobs:
   build:
     name: Build ${{ matrix.target }}
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created }}
+    if: ${{ needs.release-please.outputs.release_created || github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -116,7 +122,7 @@ jobs:
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ needs.release-please.outputs.tag_name }}
+          tag_name: ${{ inputs.tag_name || needs.release-please.outputs.tag_name }}
           files: release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -124,7 +130,7 @@ jobs:
   publish-npm:
     name: Publish to npm
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created }}
+    if: ${{ needs.release-please.outputs.release_created || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
