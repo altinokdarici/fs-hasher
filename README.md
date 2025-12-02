@@ -30,7 +30,7 @@ npm install fswatchd
 
 ## Usage
 
-Communication via Unix socket (`/tmp/fs-hasher.sock`) or Windows named pipe (`\\.\pipe\fs-hasher`):
+Communication via Unix socket (`/tmp/fswatchd.sock`) or Windows named pipe (`\\.\pipe\fswatchd`):
 
 ### Hash request
 
@@ -80,8 +80,8 @@ cargo build --release
 ## Protocol
 
 Newline-delimited JSON (NDJSON) over:
-- Unix/macOS: `/tmp/fs-hasher.sock`
-- Windows: `\\.\pipe\fs-hasher`
+- Unix/macOS: `/tmp/fswatchd.sock`
+- Windows: `\\.\pipe\fswatchd`
 
 ## License
 

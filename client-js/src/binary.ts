@@ -6,7 +6,7 @@ export class FswatchdNotFoundError extends Error {
   constructor() {
     super(
       `fswatchd binary not found in PATH. Install it:\n` +
-      `  curl -fsSL https://raw.githubusercontent.com/altinok/fswatchd/main/install.sh | sh\n` +
+      `  curl -fsSL https://raw.githubusercontent.com/altinokdarici/fs-hasher/main/install.sh | sh\n` +
       `\n` +
       `Or install via cargo:\n` +
       `  cargo install fswatchd`
