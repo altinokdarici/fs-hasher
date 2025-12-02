@@ -11,8 +11,11 @@ env:
 
 jobs:
   check:
-    name: Check & Test
-    runs-on: ubuntu-latest
+    name: Check & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -52,11 +55,17 @@ jobs:
         run: cargo build --release
         working-directory: fswatchd
 
-      - name: Add fswatchd to PATH
+      - name: Add fswatchd to PATH (Unix)
+        if: runner.os != 'Windows'
         run: |
           mkdir -p ~/.local/bin
           cp fswatchd/target/release/fswatchd ~/.local/bin/
           echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Add fswatchd to PATH (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          echo "${{ github.workspace }}\fswatchd\target\release" >> $env:GITHUB_PATH
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
