@@ -3,14 +3,30 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 const STATE_DIR: &str = ".fswatchd";
 const STATE_FILE: &str = "state.json";
 
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+pub struct WatchEntry {
+    pub root: PathBuf,
+    pub path: String,
+    pub glob: String,
+}
+
+impl Hash for WatchEntry {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.root.hash(state);
+        self.path.hash(state);
+        self.glob.hash(state);
+    }
+}
+
 #[derive(Serialize, Deserialize, Default)]
 pub struct PersistedState {
-    pub watch_roots: HashSet<PathBuf>,
+    pub watch_entries: HashSet<WatchEntry>,
 }
 
 /// Returns the path to the state file (~/.fs-hasher/state.json).

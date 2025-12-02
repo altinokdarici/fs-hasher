@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::hasher;
 
+#[derive(Clone, Copy)]
 pub struct HashResult {
     pub hash: u64,
     pub file_count: usize,

@@ -3,16 +3,21 @@ import assert from "node:assert";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hash, watch } from "./index.js";
+import { Client, ensureDaemon } from "./index.js";
 
 describe("fswatchd client", () => {
   let testDir: string;
+  let client: Client;
 
   before(async () => {
     testDir = await mkdtemp(join(tmpdir(), "fswatchd-test-"));
+    await ensureDaemon();
+    client = new Client();
+    await client.connect();
   });
 
   after(async () => {
+    client.close();
     await rm(testDir, { recursive: true, force: true });
   });
 
@@ -21,7 +26,7 @@ describe("fswatchd client", () => {
       const filePath = join(testDir, "test.txt");
       await writeFile(filePath, "hello world");
 
-      const result = await hash({
+      const result = await client.hash({
         root: testDir,
         path: ".",
         glob: "*.txt",
@@ -35,10 +40,10 @@ describe("fswatchd client", () => {
       await writeFile(join(testDir, "a.txt"), "file a");
       await writeFile(join(testDir, "b.txt"), "file b");
 
-      const result = await hash({
+      const result = await client.hash({
         root: testDir,
         path: ".",
-        glob: "*.txt",
+        glob: "**/*.txt",
       });
 
       assert.ok(result.hash);
@@ -48,7 +53,7 @@ describe("fswatchd client", () => {
     it("should return different hash for different content", async () => {
       await writeFile(join(testDir, "dir1.txt"), "content 1");
 
-      const result1 = await hash({
+      const result1 = await client.hash({
         root: testDir,
         path: ".",
         glob: "dir1.txt",
@@ -56,7 +61,7 @@ describe("fswatchd client", () => {
 
       await writeFile(join(testDir, "dir2.txt"), "content 2");
 
-      const result2 = await hash({
+      const result2 = await client.hash({
         root: testDir,
         path: ".",
         glob: "dir2.txt",
@@ -68,7 +73,7 @@ describe("fswatchd client", () => {
     it("should return same hash for same content", async () => {
       await writeFile(join(testDir, "same1.txt"), "identical");
 
-      const result1 = await hash({
+      const result1 = await client.hash({
         root: testDir,
         path: ".",
         glob: "same1.txt",
@@ -76,7 +81,7 @@ describe("fswatchd client", () => {
 
       await writeFile(join(testDir, "same2.txt"), "identical");
 
-      const result2 = await hash({
+      const result2 = await client.hash({
         root: testDir,
         path: ".",
         glob: "same2.txt",
@@ -88,17 +93,63 @@ describe("fswatchd client", () => {
 
   describe("watch", () => {
     it("should create watcher and allow unsubscribe", async () => {
-      const watcher = await watch({
-        root: testDir,
-        path: ".",
-        glob: "**/*",
-      });
+      const watcher = await client.watch(
+        {
+          root: testDir,
+          path: ".",
+          glob: "**/*",
+        },
+        (_paths) => {
+          // callback for file changes
+        }
+      );
 
       assert.ok(watcher, "should return a watcher");
-      assert.ok(typeof watcher.on === "function", "should have on method");
+      assert.ok(watcher.key, "should have a subscription key");
       assert.ok(typeof watcher.unsubscribe === "function", "should have unsubscribe method");
 
-      watcher.unsubscribe();
+      await watcher.unsubscribe();
+    });
+
+    it("should detect file changes", { timeout: 5000 }, async () => {
+      // Use a unique subdirectory to avoid interference from earlier tests
+      const { mkdirSync } = await import("node:fs");
+      const watchSubDir = join(testDir, "watch-subdir");
+      mkdirSync(watchSubDir, { recursive: true });
+      const watchFile = join(watchSubDir, "watch-test.txt");
+
+      let onChangeCallback: (paths: string[]) => void;
+      const firstChange = new Promise<string[]>((resolve) => {
+        onChangeCallback = resolve;
+      });
+
+      const watcher = await client.watch(
+        {
+          root: watchSubDir,
+          path: ".",
+          glob: "**/*.txt",
+        },
+        (paths) => onChangeCallback(paths)
+      );
+
+      // Write repeatedly until FSEvents delivers (it has inherent startup latency)
+      const writeLoop = async () => {
+        for (let i = 0; i < 50; i++) {
+          await writeFile(watchFile, `content ${i}`);
+          await new Promise((r) => setTimeout(r, 20));
+        }
+      };
+      writeLoop(); // don't await - let it run in background
+
+      const changedPaths = await firstChange;
+
+      assert.ok(changedPaths.length > 0, "should have received change events");
+      assert.ok(
+        changedPaths.some((p: string) => p.includes("watch-test.txt")),
+        `should include the changed file path, got: ${JSON.stringify(changedPaths)}`
+      );
+
+      await watcher.unsubscribe();
     });
   });
 });

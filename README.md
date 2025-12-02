@@ -16,27 +16,12 @@ fs-hasher watches directories and maintains content hashes of files. After the f
 
 ## Usage
 
-### CLI (one-shot)
+Communication via Unix socket (`/tmp/fs-hasher.sock`) or Windows named pipe (`\\.\pipe\fs-hasher`):
 
-```bash
-fs-hasher hash /my/project src "*.rs"
-# Output: 5c5f87e433151544
-# files: 4
-```
-
-### Daemon
-
-Start the daemon:
-```bash
-fs-hasher daemon start
-```
-
-Send requests via Unix socket (`/tmp/fs-hasher.sock`) or Windows named pipe (`\\.\pipe\fs-hasher`):
-
-#### Hash request
+### Hash request
 
 ```json
-{"type":"hash","root":"/my/project","path":"src","glob":"*.rs","persistent":true}
+{"cmd":"hash","root":"/my/project","path":"src","glob":"*.rs","persistent":true}
 ```
 
 Response:
@@ -47,15 +32,21 @@ Response:
 - `persistent: true` - starts file watcher, caches results, survives daemon restart
 - `persistent: false` (default) - one-shot hash, no caching
 
-#### Watch request
+### Watch request
 
 ```json
-{"type":"watch","root":"/my/project","path":"src","glob":"*.rs"}
+{"cmd":"watch","root":"/my/project","path":"src","glob":"*.rs"}
 ```
 
 Keeps connection open. Sends events when matching files change:
 ```json
-{"type":"changed"}
+{"event":"changed","paths":["/my/project/src/main.rs"]}
+```
+
+### Unwatch request
+
+```json
+{"cmd":"unwatch","root":"/my/project","path":"src","glob":"*.rs"}
 ```
 
 ## How it works
@@ -68,7 +59,7 @@ Keeps connection open. Sends events when matching files change:
 ## Building
 
 ```bash
-cd daemon
+cd fswatchd
 cargo build --release
 ```
 

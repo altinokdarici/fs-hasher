@@ -1,353 +1,480 @@
-//! IPC server: handles JSON protocol over Unix socket (Unix) or Named pipe (Windows).
+//! NDJSON server over Unix socket / Windows named pipe.
 
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
+
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::{RwLock, broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, RwLock};
+use tracing::{debug, error, info};
 
 use crate::daemon::{self, DaemonState};
-use crate::persistence::{self, PersistedState};
-use crate::transport::Listener;
+use crate::persistence::{self, PersistedState, WatchEntry};
+use crate::protocol::{self, Request, Response, SubscriptionKey};
+use crate::session::{RequestResult, Session, SessionBackend};
+#[cfg(unix)]
+use crate::transport::SOCKET_PATH;
+#[cfg(windows)]
+use crate::transport::PIPE_NAME;
 
 const FLUSH_INTERVAL_SECS: u64 = 30;
+const DEBOUNCE_MS: u64 = 100;
 
-type SharedState = Arc<RwLock<DaemonState>>;
-type SharedPersistence = Arc<RwLock<PersistedState>>;
+/// Shared application state
+struct AppState {
+    daemon: RwLock<DaemonState>,
+    persisted: RwLock<PersistedState>,
+    dirty: AtomicBool,
+    event_tx: mpsc::Sender<notify::Event>,
+    /// Broadcast channel for file changes - sends (key, paths)
+    change_tx: broadcast::Sender<(SubscriptionKey, Vec<String>)>,
+    /// Active subscriptions: key -> (root, path, glob)
+    subscriptions: RwLock<HashMap<SubscriptionKey, (PathBuf, String, String)>>,
+}
 
-#[derive(serde::Deserialize)]
-#[serde(tag = "type")]
-enum Request {
-    #[serde(rename = "hash")]
-    Hash {
-        root: String,
-        path: String,
-        glob: String,
-        #[serde(default)]
+/// Backend adapter that connects Session to AppState
+struct AppStateBackend {
+    state: Arc<AppState>,
+}
+
+impl SessionBackend for AppStateBackend {
+    fn hash(
+        &self,
+        root: &str,
+        path: &str,
+        glob: &str,
         persistent: bool,
-    },
-    #[serde(rename = "watch")]
-    Watch {
-        root: String,
-        path: String,
-        glob: String,
-    },
-}
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(String, usize), String>> + Send + '_>> {
+        let root = root.to_string();
+        let path = path.to_string();
+        let glob = glob.to_string();
+        let state = self.state.clone();
 
-#[derive(serde::Serialize)]
-struct HashResponse {
-    hash: String,
-    file_count: usize,
-}
+        Box::pin(async move {
+            let root_path = PathBuf::from(&root);
 
-#[derive(serde::Serialize)]
-struct WatchEvent {
-    r#type: &'static str,
-}
+            // If persistent, add to persisted watch entries
+            if persistent {
+                let entry = WatchEntry {
+                    root: root_path.clone(),
+                    path: path.clone(),
+                    glob: glob.clone(),
+                };
+                let mut p = state.persisted.write().await;
+                if p.watch_entries.insert(entry) {
+                    state.dirty.store(true, Ordering::SeqCst);
+                    if let Err(e) = persistence::save(&p) {
+                        error!("Failed to save state: {}", e);
+                    }
+                }
+            }
 
-#[derive(serde::Serialize)]
-struct ErrorResponse {
-    error: String,
-}
+            let mut daemon = state.daemon.write().await;
+            match daemon::hash(
+                &mut daemon,
+                &root_path,
+                &path,
+                &glob,
+                persistent,
+                Some(state.event_tx.clone()),
+            ) {
+                Ok(result) => Ok((format!("{:016x}", result.hash), result.file_count)),
+                Err(e) => Err(e.to_string()),
+            }
+        })
+    }
 
-/// File change event broadcast to all connections.
-#[derive(Clone, Debug)]
-struct FileChange {
-    path: PathBuf,
+    fn watch(
+        &self,
+        root: &str,
+        path: &str,
+        glob: &str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>> {
+        let root = root.to_string();
+        let path = path.to_string();
+        let glob = glob.to_string();
+        let state = self.state.clone();
+
+        Box::pin(async move {
+            let root_path = PathBuf::from(&root);
+
+            // Start watching if not already
+            {
+                let mut daemon = state.daemon.write().await;
+                if let Err(e) = daemon::ensure_watching(&mut daemon, &root_path, Some(state.event_tx.clone())) {
+                    return Err(e.to_string());
+                }
+            }
+
+            // Add to persisted watch entries
+            {
+                let entry = WatchEntry {
+                    root: root_path.clone(),
+                    path: path.clone(),
+                    glob: glob.clone(),
+                };
+                let mut p = state.persisted.write().await;
+                if p.watch_entries.insert(entry) {
+                    state.dirty.store(true, Ordering::SeqCst);
+                    if let Err(e) = persistence::save(&p) {
+                        error!("Failed to save state: {}", e);
+                    }
+                }
+            }
+
+            Ok(())
+        })
+    }
 }
 
 #[tokio::main]
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let listener = Listener::bind().await?;
-
-    let state: SharedState = Arc::new(RwLock::new(DaemonState::new()));
-    let persisted: SharedPersistence = Arc::new(RwLock::new(persistence::load()));
-    let dirty = Arc::new(AtomicBool::new(false));
+    // Check if another daemon is already running
+    #[cfg(unix)]
+    {
+        if tokio::net::UnixStream::connect(SOCKET_PATH).await.is_ok() {
+            return Err("Another fswatchd instance is already running".into());
+        }
+        let _ = std::fs::remove_file(SOCKET_PATH);
+    }
 
     let (event_tx, mut event_rx) = mpsc::channel::<notify::Event>(100);
-    let (change_tx, _) = broadcast::channel::<FileChange>(100);
+    let (change_tx, _) = broadcast::channel::<(SubscriptionKey, Vec<String>)>(100);
 
-    // Restore watchers from persisted state and trigger background re-hash
-    restore_watchers(&state, &persisted, &event_tx).await;
+    let state = Arc::new(AppState {
+        daemon: RwLock::new(DaemonState::new()),
+        persisted: RwLock::new(persistence::load()),
+        dirty: AtomicBool::new(false),
+        event_tx,
+        change_tx: change_tx.clone(),
+        subscriptions: RwLock::new(HashMap::new()),
+    });
+
+    // Restore watchers from persisted state
+    restore_watchers(&state).await;
 
     // Handle file change events from notify
     let state_clone = state.clone();
-    let change_tx_clone = change_tx.clone();
     tokio::spawn(async move {
-        while let Some(event) = event_rx.recv().await {
-            handle_file_event(&state_clone, &change_tx_clone, event).await;
+        let mut pending: HashMap<PathBuf, tokio::time::Instant> = HashMap::new();
+        let mut interval = tokio::time::interval(Duration::from_millis(DEBOUNCE_MS));
+
+        loop {
+            tokio::select! {
+                Some(event) = event_rx.recv() => {
+                    use notify::EventKind;
+                    match event.kind {
+                        EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_) => {
+                            let deadline = tokio::time::Instant::now() + Duration::from_millis(DEBOUNCE_MS);
+                            for path in event.paths {
+                                pending.insert(path, deadline);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                _ = interval.tick() => {
+                    let now = tokio::time::Instant::now();
+                    let ready: Vec<PathBuf> = pending
+                        .iter()
+                        .filter(|(_, deadline)| now >= **deadline)
+                        .map(|(path, _)| path.clone())
+                        .collect();
+
+                    if !ready.is_empty() {
+                        for path in &ready {
+                            pending.remove(path);
+                            // Invalidate cache
+                            let mut daemon = state_clone.daemon.write().await;
+                            daemon::invalidate_file(&mut daemon, path);
+                        }
+
+                        // Check which subscriptions match and notify
+                        let subs = state_clone.subscriptions.read().await;
+                        let mut matches: HashMap<SubscriptionKey, Vec<String>> = HashMap::new();
+
+                        for (key, (root, path, glob)) in subs.iter() {
+                            for changed_path in &ready {
+                                if matches_watch(changed_path, root, path, glob) {
+                                    matches
+                                        .entry(key.clone())
+                                        .or_default()
+                                        .push(changed_path.to_string_lossy().to_string());
+                                }
+                            }
+                        }
+
+                        for (key, paths) in matches {
+                            let _ = state_clone.change_tx.send((key, paths));
+                        }
+                    }
+                }
+            }
         }
     });
 
     // Periodic flush (30s if dirty)
-    let persisted_clone = persisted.clone();
-    let dirty_clone = dirty.clone();
+    let state_clone = state.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(FLUSH_INTERVAL_SECS));
         loop {
             interval.tick().await;
-            if dirty_clone.swap(false, Ordering::SeqCst) {
-                let state = persisted_clone.read().await;
-                if let Err(e) = persistence::save(&state) {
-                    eprintln!("Failed to save state: {}", e);
+            if state_clone.dirty.swap(false, Ordering::SeqCst) {
+                let persisted = state_clone.persisted.read().await;
+                if let Err(e) = persistence::save(&persisted) {
+                    error!("Failed to save state: {}", e);
                 }
             }
         }
     });
 
+    // Start accepting connections
+    accept_connections(state).await
+}
+
+#[cfg(unix)]
+async fn accept_connections(state: Arc<AppState>) -> Result<(), Box<dyn std::error::Error>> {
+    let listener = tokio::net::UnixListener::bind(SOCKET_PATH)?;
+    info!("Daemon started, listening on {}", SOCKET_PATH);
+
     loop {
-        let conn = listener.accept().await?;
+        let (stream, _) = listener.accept().await?;
         let state = state.clone();
-        let persisted = persisted.clone();
-        let dirty = dirty.clone();
-        let event_tx = event_tx.clone();
-        let change_rx = change_tx.subscribe();
-
         tokio::spawn(async move {
-            if let Err(e) =
-                handle_connection(conn, state, persisted, dirty, event_tx, change_rx).await
-            {
-                eprintln!("Connection error: {}", e);
+            if let Err(e) = handle_connection(state, stream).await {
+                debug!("Connection closed: {}", e);
             }
         });
     }
 }
 
-/// Restore watchers from persisted state and trigger background re-hash.
-async fn restore_watchers(
-    state: &SharedState,
-    persisted: &SharedPersistence,
-    event_tx: &mpsc::Sender<notify::Event>,
-) {
-    let roots: Vec<PathBuf> = {
-        let p = persisted.read().await;
-        p.watch_roots.iter().cloned().collect()
-    };
+#[cfg(windows)]
+async fn accept_connections(state: Arc<AppState>) -> Result<(), Box<dyn std::error::Error>> {
+    use tokio::net::windows::named_pipe::ServerOptions;
 
-    if roots.is_empty() {
-        return;
-    }
+    info!("Daemon started, listening on {}", PIPE_NAME);
 
-    eprintln!("Restoring {} watch roots from persisted state", roots.len());
+    let mut server = ServerOptions::new()
+        .first_pipe_instance(true)
+        .create(PIPE_NAME)?;
 
-    for root in roots {
-        // Start watcher
-        {
-            let mut s = state.write().await;
-            if let Err(e) = daemon::ensure_watching(&mut s, &root, Some(event_tx.clone())) {
-                eprintln!("Failed to restore watcher for {}: {}", root.display(), e);
-                continue;
-            }
-        }
+    loop {
+        server.connect().await?;
+        let stream = server;
 
-        // Background re-hash to populate cache
-        let state_clone = state.clone();
-        let root_clone = root.clone();
+        // Create next pipe instance before serving
+        server = ServerOptions::new()
+            .first_pipe_instance(false)
+            .create(PIPE_NAME)?;
+
+        let state = state.clone();
         tokio::spawn(async move {
-            eprintln!("Background re-hash for: {}", root_clone.display());
-            let mut s = state_clone.write().await;
-            // Hash all files under root with "**/*" glob to populate cache
-            if let Err(e) = daemon::hash(&mut s, &root_clone, ".", "**/*", false, None) {
-                eprintln!(
-                    "Background re-hash failed for {}: {}",
-                    root_clone.display(),
-                    e
-                );
-            } else {
-                eprintln!("Background re-hash complete for: {}", root_clone.display());
+            if let Err(e) = handle_connection(state, stream).await {
+                debug!("Connection closed: {}", e);
             }
         });
     }
 }
 
-async fn handle_file_event(
-    state: &SharedState,
-    change_tx: &broadcast::Sender<FileChange>,
-    event: notify::Event,
-) {
-    use notify::EventKind;
-
-    match event.kind {
-        EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_) => {
-            for path in event.paths {
-                eprintln!("File changed: {}", path.display());
-                let mut state = state.write().await;
-                daemon::invalidate_file(&mut state, &path);
-                let _ = change_tx.send(FileChange { path });
-            }
-        }
-        _ => {}
-    }
-}
-
-async fn handle_connection(
-    conn: crate::transport::Connection,
-    state: SharedState,
-    persisted: SharedPersistence,
-    dirty: Arc<AtomicBool>,
-    event_tx: mpsc::Sender<notify::Event>,
-    mut change_rx: broadcast::Receiver<FileChange>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let (reader, mut writer) = conn.split();
+/// Handle a single client connection
+async fn handle_connection<S>(state: Arc<AppState>, stream: S) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send,
+{
+    let (reader, mut writer) = tokio::io::split(stream);
     let mut reader = BufReader::new(reader);
     let mut line = String::new();
 
-    // Track active watch subscriptions for this connection
-    let mut watches: Vec<(PathBuf, String, String)> = Vec::new(); // (root, path, glob)
+    // Subscribe to change events for this connection
+    let mut change_rx = state.change_tx.subscribe();
+
+    // Create session for this connection
+    let mut session = Session::new();
+
+    // Create backend adapter
+    let backend = AppStateBackend { state: state.clone() };
 
     loop {
-        tokio::select! {
-            // Handle incoming requests
-            result = reader.read_line(&mut line) => {
-                match result {
-                    Ok(0) => break, // Connection closed
-                    Ok(_) => {
-                        let response = process_request(&line, &state, &persisted, &dirty, &event_tx, &mut watches).await;
-                        if let Some(resp) = response {
-                            writer.write_all(resp.as_bytes()).await?;
-                            writer.write_all(b"\n").await?;
+        line.clear();
+
+        // Wait for either a request or timeout (to check for events)
+        let read_result = tokio::time::timeout(
+            Duration::from_millis(50),
+            reader.read_line(&mut line)
+        ).await;
+
+        match read_result {
+            Ok(Ok(0)) => break, // Connection closed
+            Ok(Ok(_)) => {
+                // Got a request - parse and process
+                let response = match serde_json::from_str::<Request>(&line) {
+                    Ok(req) => {
+                        let result = session.process_request(req, &backend).await;
+                        match result {
+                            RequestResult::Response(resp) => resp,
+                            RequestResult::Subscribe { response, key } => {
+                                // Add to global subscriptions
+                                register_subscription(&state, &key, &line).await;
+                                response
+                            }
+                            RequestResult::Unsubscribe { response } => response,
                         }
-                        line.clear();
                     }
-                    Err(e) => return Err(e.into()),
-                }
+                    Err(e) => Response::Error { error: format!("Invalid request: {}", e) },
+                };
+
+                let response_json = serde_json::to_string(&response)?;
+                writer.write_all(response_json.as_bytes()).await?;
+                writer.write_all(b"\n").await?;
+                writer.flush().await?;
             }
-            // Handle file change broadcasts
-            result = change_rx.recv() => {
-                if let Ok(change) = result {
-                    // Check if change matches any watch subscription
-                    for (root, path, glob) in &watches {
-                        if matches_watch(&change.path, root, path, glob) {
-                            let event = serde_json::to_string(&WatchEvent { r#type: "changed" }).unwrap();
-                            writer.write_all(event.as_bytes()).await?;
-                            writer.write_all(b"\n").await?;
-                            break; // One notification per change event
-                        }
+            Ok(Err(e)) => return Err(e.into()), // Read error
+            Err(_) => {} // Timeout - no request, check for events below
+        }
+
+        // Drain any pending events (non-blocking)
+        loop {
+            match change_rx.try_recv() {
+                Ok((key, paths)) => {
+                    if session.should_receive_event(&key) {
+                        let event = protocol::SubscriptionEvent { key, paths };
+                        let event_json = serde_json::to_string(&event)?;
+                        writer.write_all(event_json.as_bytes()).await?;
+                        writer.write_all(b"\n").await?;
                     }
                 }
+                Err(broadcast::error::TryRecvError::Empty) => break,
+                Err(broadcast::error::TryRecvError::Lagged(_)) => continue, // Skip missed events
+                Err(broadcast::error::TryRecvError::Closed) => return Ok(()),
             }
         }
+        writer.flush().await?;
     }
 
     Ok(())
 }
 
-/// Check if a changed file path matches a watch subscription.
-fn matches_watch(changed: &Path, root: &Path, path: &str, glob: &str) -> bool {
-    use ignore::overrides::OverrideBuilder;
+/// Register a subscription in the global state
+async fn register_subscription(state: &Arc<AppState>, key: &str, request_line: &str) {
+    // Parse the request again to get root/path/glob
+    if let Ok(Request::Watch { root, path, glob }) = serde_json::from_str(request_line) {
+        let root_path = PathBuf::from(&root);
+        let mut subs = state.subscriptions.write().await;
+        subs.insert(key.to_string(), (root_path, path, glob));
+    }
+}
 
-    let watch_dir = root.join(path);
+/// Restore watchers from persisted state
+async fn restore_watchers(state: &Arc<AppState>) {
+    let entries: Vec<WatchEntry> = {
+        let p = state.persisted.read().await;
+        p.watch_entries.iter().cloned().collect()
+    };
 
-    // Check if the changed file is under the watched directory
+    if entries.is_empty() {
+        return;
+    }
+
+    info!("Restoring {} watch entries from persisted state", entries.len());
+
+    for entry in entries {
+        {
+            let mut daemon = state.daemon.write().await;
+            if let Err(e) = daemon::ensure_watching(&mut daemon, &entry.root, Some(state.event_tx.clone())) {
+                error!("Failed to restore watcher for {}: {}", entry.root.display(), e);
+                continue;
+            }
+        }
+
+        // Register subscription
+        let key = protocol::make_subscription_key(
+            &entry.root.to_string_lossy(),
+            &entry.path,
+            &entry.glob,
+        );
+        {
+            let mut subs = state.subscriptions.write().await;
+            subs.insert(key, (entry.root.clone(), entry.path.clone(), entry.glob.clone()));
+        }
+
+        // Background re-hash
+        let state_clone = state.clone();
+        tokio::spawn(async move {
+            debug!("Background re-hash for: {} path={} glob={}", entry.root.display(), entry.path, entry.glob);
+            let start = std::time::Instant::now();
+            let mut daemon = state_clone.daemon.write().await;
+            match daemon::hash(&mut daemon, &entry.root, &entry.path, &entry.glob, false, None) {
+                Ok(result) => {
+                    info!("Re-hash complete: {} path={} files={} duration={:?}",
+                        entry.root.display(), entry.path, result.file_count, start.elapsed());
+                }
+                Err(e) => {
+                    error!("Background re-hash failed for {} path={}: {}", entry.root.display(), entry.path, e);
+                }
+            }
+        });
+    }
+}
+
+/// Check if a changed file path matches a watch subscription
+fn matches_watch(changed: &std::path::Path, root: &std::path::Path, path: &str, glob_pattern: &str) -> bool {
+    let watch_dir = match root.join(path).canonicalize() {
+        Ok(p) => p,
+        Err(_) => root.join(path),
+    };
+    let changed = match changed.canonicalize() {
+        Ok(p) => p,
+        Err(_) => changed.to_path_buf(),
+    };
+
     if !changed.starts_with(&watch_dir) {
         return false;
     }
 
-    // Check glob pattern using ignore crate
-    // Prefix with ! to make it an inclusion pattern (whitelist)
-    let inclusion_glob = format!("!{}", glob);
-    let overrides = match OverrideBuilder::new(&watch_dir)
-        .add(&inclusion_glob)
-        .and_then(|b| b.build())
-    {
-        Ok(o) => o,
+    let rel_path = match changed.strip_prefix(&watch_dir) {
+        Ok(p) => p,
         Err(_) => return false,
     };
 
-    overrides.matched(changed, false).is_whitelist()
+    let glob = match globset::Glob::new(glob_pattern) {
+        Ok(g) => g.compile_matcher(),
+        Err(_) => return false,
+    };
+
+    glob.is_match(rel_path)
 }
 
-async fn process_request(
-    request: &str,
-    state: &SharedState,
-    persisted: &SharedPersistence,
-    dirty: &Arc<AtomicBool>,
-    event_tx: &mpsc::Sender<notify::Event>,
-    watches: &mut Vec<(PathBuf, String, String)>,
-) -> Option<String> {
-    match serde_json::from_str::<Request>(request) {
-        Ok(Request::Hash {
-            root,
-            path,
-            glob,
-            persistent,
-        }) => {
-            let root_path = PathBuf::from(&root);
-            let mut state = state.write().await;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-            // If persistent, add to persisted watch roots
-            if persistent {
-                let mut p = persisted.write().await;
-                if p.watch_roots.insert(root_path.clone()) {
-                    dirty.store(true, Ordering::SeqCst);
-                    // Save immediately on new watch entry
-                    if let Err(e) = persistence::save(&p) {
-                        eprintln!("Failed to save state: {}", e);
-                    }
-                }
-            }
+    #[test]
+    fn test_matches_watch_basic() {
+        let temp_dir = std::env::temp_dir().join("fswatchd-test-matches");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let test_file = temp_dir.join("test.rs");
+        let _ = std::fs::write(&test_file, "");
 
-            let response = match daemon::hash(
-                &mut state,
-                &root_path,
-                &path,
-                &glob,
-                persistent,
-                Some(event_tx.clone()),
-            ) {
-                Ok(result) => serde_json::to_string(&HashResponse {
-                    hash: format!("{:016x}", result.hash),
-                    file_count: result.file_count,
-                })
-                .unwrap(),
-                Err(e) => serde_json::to_string(&ErrorResponse {
-                    error: e.to_string(),
-                })
-                .unwrap(),
-            };
-            Some(response)
-        }
-        Ok(Request::Watch { root, path, glob }) => {
-            let root_path = PathBuf::from(&root);
+        assert!(matches_watch(&test_file, &temp_dir, ".", "*.rs"));
+        assert!(!matches_watch(&test_file, &temp_dir, ".", "*.txt"));
 
-            // Start watching if not already
-            {
-                let mut state = state.write().await;
-                if let Err(e) =
-                    daemon::ensure_watching(&mut state, &root_path, Some(event_tx.clone()))
-                {
-                    return Some(
-                        serde_json::to_string(&ErrorResponse {
-                            error: e.to_string(),
-                        })
-                        .unwrap(),
-                    );
-                }
-            }
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 
-            // Add to persisted watch roots
-            {
-                let mut p = persisted.write().await;
-                if p.watch_roots.insert(root_path.clone()) {
-                    dirty.store(true, Ordering::SeqCst);
-                    if let Err(e) = persistence::save(&p) {
-                        eprintln!("Failed to save state: {}", e);
-                    }
-                }
-            }
+    #[test]
+    fn test_matches_watch_nested() {
+        let temp_dir = std::env::temp_dir().join("fswatchd-test-nested");
+        let sub_dir = temp_dir.join("src");
+        let _ = std::fs::create_dir_all(&sub_dir);
+        let test_file = sub_dir.join("lib.rs");
+        let _ = std::fs::write(&test_file, "");
 
-            // Add to this connection's watch list
-            watches.push((root_path, path, glob));
+        assert!(matches_watch(&test_file, &temp_dir, ".", "**/*.rs"));
+        assert!(matches_watch(&test_file, &temp_dir, "src", "*.rs"));
+        assert!(!matches_watch(&test_file, &temp_dir, "lib", "*.rs"));
 
-            // No response for watch - just start streaming
-            None
-        }
-        Err(e) => Some(
-            serde_json::to_string(&ErrorResponse {
-                error: format!("Invalid request: {}", e),
-            })
-            .unwrap(),
-        ),
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

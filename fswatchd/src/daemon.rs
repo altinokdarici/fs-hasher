@@ -4,13 +4,23 @@ use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
+use tracing::{debug, info};
 
 use crate::hash_service::{self, HashResult};
 use crate::hasher;
 
-/// Daemon state: file cache + active watchers.
+/// Cache key for glob hash results
+#[derive(Hash, Eq, PartialEq, Clone)]
+pub struct GlobKey {
+    pub root: PathBuf,
+    pub path: String,
+    pub glob: String,
+}
+
+/// Daemon state: file cache + result cache + active watchers.
 pub struct DaemonState {
     pub file_cache: HashMap<PathBuf, u64>,
+    pub result_cache: HashMap<GlobKey, HashResult>,
     pub root_watchers: HashMap<PathBuf, RecommendedWatcher>,
 }
 
@@ -18,6 +28,7 @@ impl DaemonState {
     pub fn new() -> Self {
         Self {
             file_cache: HashMap::new(),
+            result_cache: HashMap::new(),
             root_watchers: HashMap::new(),
         }
     }
@@ -26,7 +37,20 @@ impl DaemonState {
 /// Invalidates cached hash for a file path.
 pub fn invalidate_file(state: &mut DaemonState, path: &PathBuf) {
     if state.file_cache.remove(path).is_some() {
-        eprintln!("Invalidated cache for: {}", path.display());
+        debug!(path = %path.display(), "invalidated file cache");
+    }
+
+    // Invalidate any result cache entries that could contain this file
+    let keys_to_remove: Vec<GlobKey> = state
+        .result_cache
+        .keys()
+        .filter(|key| path.starts_with(&key.root.join(&key.path)))
+        .cloned()
+        .collect();
+
+    for key in keys_to_remove {
+        state.result_cache.remove(&key);
+        debug!(path = %key.path, glob = %key.glob, "invalidated result cache");
     }
 }
 
@@ -42,7 +66,23 @@ pub fn hash(
     if persistent {
         start_watching(state, root, event_tx)?;
     }
-    hash_service::hash_with_cache(&mut state.file_cache, root, path, glob)
+
+    // Check result cache first
+    let key = GlobKey {
+        root: root.clone(),
+        path: path.to_string(),
+        glob: glob.to_string(),
+    };
+
+    if let Some(result) = state.result_cache.get(&key) {
+        debug!(path = %path, glob = %glob, "cache hit");
+        return Ok(result.clone());
+    }
+
+    // Cache miss - compute and store
+    let result = hash_service::hash_with_cache(&mut state.file_cache, root, path, glob)?;
+    state.result_cache.insert(key, result.clone());
+    Ok(result)
 }
 
 /// Ensures a watcher is running on a root directory. Public for watch API.
@@ -71,7 +111,9 @@ fn start_watching(
 
     let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
         if let Ok(event) = res {
-            let _ = tx.blocking_send(event);
+            // Use try_send to avoid blocking - if channel is full, event is dropped
+            // This is safer than blocking_send which can have issues from non-tokio threads
+            let _ = tx.try_send(event);
         }
     })
     .map_err(|e| hasher::HashError::Watch(e.to_string()))?;
@@ -80,7 +122,7 @@ fn start_watching(
         .watch(root, RecursiveMode::Recursive)
         .map_err(|e| hasher::HashError::Watch(e.to_string()))?;
 
-    eprintln!("Started watching: {}", root.display());
+    info!(root = %root.display(), "started watching");
     state.root_watchers.insert(root.clone(), watcher);
 
     Ok(())

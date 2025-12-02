@@ -1,5 +1,4 @@
 use ignore::WalkBuilder;
-use ignore::overrides::OverrideBuilder;
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -7,11 +6,8 @@ use xxhash_rust::xxh3::xxh3_64;
 
 #[derive(Error, Debug)]
 pub enum HashError {
-    #[error("Invalid glob pattern: {0}")]
-    InvalidGlob(#[from] ignore::Error),
-
-    #[error("Walk error: {0}")]
-    Walk(ignore::Error),
+    #[error("Glob error: {0}")]
+    GlobError(#[from] globset::Error),
 
     #[error("Failed to read file {path}: {source}")]
     ReadFile {
@@ -47,17 +43,27 @@ pub fn aggregate_hashes(mut hashes: Vec<u64>) -> u64 {
 pub fn list_files(root: &Path, path: &str, glob_pattern: &str) -> Result<Vec<PathBuf>, HashError> {
     let full_path = root.join(path);
 
-    let overrides = OverrideBuilder::new(&full_path)
-        .add(glob_pattern)?
-        .build()?;
+    // Build glob matcher
+    let glob = globset::Glob::new(glob_pattern)?.compile_matcher();
 
-    let walker = WalkBuilder::new(&full_path).overrides(overrides).build();
+    // Walk with gitignore support
+    let walker = WalkBuilder::new(&full_path)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .follow_links(false)
+        .build();
 
     let mut files = Vec::new();
-    for entry in walker {
-        let entry = entry.map_err(HashError::Walk)?;
-        if entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
-            files.push(entry.path().to_path_buf());
+    for entry in walker.filter_map(Result::ok) {
+        let entry_path = entry.path();
+        if entry_path.is_file() {
+            // Match glob against relative path from base directory
+            if let Ok(rel_path) = entry_path.strip_prefix(&full_path) {
+                if glob.is_match(rel_path) {
+                    files.push(entry_path.to_path_buf());
+                }
+            }
         }
     }
 

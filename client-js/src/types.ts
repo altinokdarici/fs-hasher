@@ -17,7 +17,7 @@ export interface WatchRequest {
 }
 
 export interface WatchEvent {
-  type: "changed";
+  paths: string[];
 }
 
 export class FswatchdError extends Error {
