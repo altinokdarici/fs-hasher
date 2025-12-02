@@ -1,10 +1,10 @@
 #!/bin/sh
 # fswatchd installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/altinok/fswatchd/main/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/altinokdarici/fs-hasher/main/install.sh | sh
 
 set -e
 
-REPO="altinok/fswatchd"
+REPO="altinokdarici/fs-hasher"
 BINARY_NAME="fswatchd"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 

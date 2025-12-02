@@ -14,6 +14,20 @@ fs-hasher watches directories and maintains content hashes of files. After the f
 - Watches for file changes and invalidates cache automatically
 - Persists watch roots across daemon restarts
 
+## Installation
+
+### Daemon
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/altinokdarici/fs-hasher/main/install.sh | sh
+```
+
+### Node.js Client
+
+```bash
+npm install fswatchd
+```
+
 ## Usage
 
 Communication via Unix socket (`/tmp/fs-hasher.sock`) or Windows named pipe (`\\.\pipe\fs-hasher`):
