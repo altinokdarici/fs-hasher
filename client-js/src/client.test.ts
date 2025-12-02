@@ -91,6 +91,22 @@ describe("fswatchd client", () => {
     });
   });
 
+  describe("errors", () => {
+    it("should error on non-existent root", async () => {
+      await assert.rejects(
+        client.hash({ root: "/nonexistent/path", path: ".", glob: "*.txt" }),
+        /error/i
+      );
+    });
+
+    it("should error when no files match glob", async () => {
+      await assert.rejects(
+        client.hash({ root: testDir, path: ".", glob: "*.nonexistent" }),
+        /no files/i
+      );
+    });
+  });
+
   describe("watch", () => {
     it("should create watcher and allow unsubscribe", async () => {
       const watcher = await client.watch(
