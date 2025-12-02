@@ -11,8 +11,6 @@
     }
   },
   "separate-pull-requests": false,
-  "group-pull-request-title-pattern": "chore: release ${version}",
-  "pull-request-title-pattern": "chore: release${component} ${version}",
   "changelog-sections": [
     { "type": "feat", "section": "Features" },
     { "type": "fix", "section": "Bug Fixes" },
