@@ -142,6 +142,9 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10
@@ -155,5 +158,5 @@ jobs:
         working-directory: client-js
 
       - name: Publish
-        run: npm publish --provenance --access public
+        run: npm publish --access public
         working-directory: client-js
